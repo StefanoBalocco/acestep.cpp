@@ -5,12 +5,14 @@
 		open = $bindable(false),
 		title,
 		body,
+		actions,
 		onConfirm
 	}: {
 		open: boolean;
 		title: string;
 		body?: Snippet;
-		onConfirm: () => void;
+		actions?: Snippet<[() => void]>;
+		onConfirm?: () => void;
 	} = $props();
 
 	let root = $state<HTMLDivElement>();
@@ -21,12 +23,13 @@
 
 	function confirm() {
 		open = false;
-		onConfirm();
+		onConfirm?.();
 	}
 
 	// Same outside-click pattern as Menu.svelte. Listeners attach only while
-	// open so closed dialogs cost nothing globally. Enter confirms, Escape
-	// cancels: both work whether focus sits on the buttons or inside an input.
+	// open so closed dialogs cost nothing globally. Escape always cancels.
+	// Enter confirms only when the default Cancel/OK footer is in use; with a
+	// custom actions snippet the user picks an explicit button.
 	$effect(() => {
 		if (!open) return;
 		const onMouseDown = (e: MouseEvent) => {
@@ -34,7 +37,7 @@
 		};
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === 'Escape') cancel();
-			else if (e.key === 'Enter') confirm();
+			else if (e.key === 'Enter' && !actions) confirm();
 		};
 		document.addEventListener('mousedown', onMouseDown);
 		document.addEventListener('keydown', onKey);
@@ -53,8 +56,12 @@
 				<div class="dialog-body">{@render body()}</div>
 			{/if}
 			<div class="dialog-footer">
-				<button type="button" class="dialog-btn" onclick={cancel}>Cancel</button>
-				<button type="button" class="dialog-btn" onclick={confirm}>OK</button>
+				{#if actions}
+					{@render actions(cancel)}
+				{:else}
+					<button type="button" class="dialog-btn" onclick={cancel}>Cancel</button>
+					<button type="button" class="dialog-btn" onclick={confirm}>OK</button>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -93,7 +100,12 @@
 		justify-content: flex-end;
 		gap: 0.4rem;
 	}
-	.dialog-btn {
+	/* Global so the actions snippet, authored in the parent component,
+	   reuses the exact same button look without duplicating styles.
+	   Doubled class selector raises specificity to 0,0,2,0 so the rule
+	   wins over a scoped `button { ... }` in the parent (which Svelte
+	   compiles to `button.svelte-HASH`, specificity 0,0,1,1). */
+	:global(.dialog-btn.dialog-btn) {
 		background: var(--bg-btn);
 		border: none;
 		cursor: pointer;
@@ -102,7 +114,7 @@
 		font-size: 0.8rem;
 		border-radius: 3px;
 	}
-	.dialog-btn:hover {
+	:global(.dialog-btn.dialog-btn:hover) {
 		background: var(--bg-btn-hover);
 	}
 </style>
