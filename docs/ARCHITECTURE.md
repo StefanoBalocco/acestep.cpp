@@ -5,7 +5,7 @@
 # acestep.cpp
 
 Portable C++17 implementation of ACE-Step 1.5 music generation using GGML.
-Text + lyrics in, stereo 48kHz MP3 or WAV out. Runs on CPU, CUDA, ROCm, Metal, Vulkan.
+Text + lyrics in, stereo 48kHz WAV out (MP3/Opus/FLAC when built). Runs on CPU, CUDA, ROCm, Metal, Vulkan.
 
 ## Build
 
@@ -56,7 +56,12 @@ cmake .. -DGGML_CPU_ALL_VARIANTS=ON -DGGML_CUDA=ON -DGGML_VULKAN=ON -DGGML_BACKE
 cmake --build . --config Release -j %NUMBER_OF_PROCESSORS%
 ```
 
-Builds seven binaries: `ace-lm` (LLM), `ace-synth` (DiT + VAE), `ace-server` (HTTP server), `ace-understand` (reverse: audio -> metadata), `neural-codec` (VAE encode/decode), `mp3-codec` (MP3 encoder/decoder) and `quantize` (GGUF requantizer).
+Builds `ace-server` by default plus six CLI tools when `-DTOOLS=ON`:
+`ace-lm` (LLM), `ace-synth` (DiT + VAE), `ace-understand` (reverse: audio
+-> metadata), `neural-codec` (VAE encode/decode), `mp3-codec` (generic
+audio transcoder) and `quantize` (GGUF requantizer). Audio codecs are gated
+by `-DMP3`, `-DFLAC` and `-DOPUS`; see [AGENTS.md](../AGENTS.md) for the
+full flag matrix. The default build is WAV-only.
 
 ## Models
 
@@ -176,7 +181,7 @@ EOF
     --models models \
     --request /tmp/request.json
 
-# DiT+VAE: request0.json -> request00.mp3
+# DiT+VAE: request0.json -> request00.wav (output_format default is wav16)
 ./ace-synth \
     --models models \
     --request /tmp/request0.json
@@ -219,7 +224,7 @@ EOF
     --models models \
     --request /tmp/request.json
 
-# DiT+VAE: both requests in one GPU batch -> request00.mp3, request10.mp3
+# DiT+VAE: both requests in one GPU batch -> request00.wav, request10.wav
 ./ace-synth \
     --models models \
     --request /tmp/request0.json /tmp/request1.json
@@ -505,9 +510,10 @@ their own, but without caption the LLM has nothing to work from.
     "track":                "",
     "solver":               "euler",
     "lm_mode":              "generate",
-    "output_format":        "mp3",
+    "output_format":        "wav16",
     "peak_clip":            10,
-    "mp3_bitrate":          128,
+    "quality":              -1,
+    "bitrate":              -1,
     "synth_model":          "",
     "lm_model":             "",
     "adapter":              "",
@@ -526,7 +532,17 @@ property of the request, not of the command line.
 `lm_mode` picks the LM instruction: `"generate"` (full: metadata + lyrics
 + codes), `"inspire"` (short query to metadata + lyrics, no codes),
 `"format"` (caption + lyrics to metadata + lyrics, no codes). `output_format`
-picks the audio encoder: `"mp3"`, `"wav16"`, `"wav24"`, `"wav32"`.
+picks the audio encoder: `"wav"` (alias for `"wav16"`), `"wav16"`,
+`"wav24"`, `"wav32"` (always available), plus `"mp3"` (`-DMP3`),
+`"opus"` (`-DOPUS`) and `"flac"` (`-DFLAC`) when the matching CMake flag is
+on. The `/props` endpoint exposes the compiled-in list as `audio_formats`.
+
+`quality` (default `-1`) and `bitrate` (default `-1`) are codec-native
+controls: MP3 reads `bitrate` as ABR kbps or `quality` 0..9 as LAME VBR
+`-V`; Opus reads `bitrate` as target kbps and `quality` 0..10 as
+complexity; FLAC reads `quality` 0..8 as compression level and ignores
+`bitrate` (lossless). WAV ignores both. `-1` means "use the library
+default".
 
 ### Text conditioning (ace-lm + ace-synth)
 
@@ -786,8 +802,9 @@ Debug:
 
 Model selection comes from the first request JSON. `synth_model` picks
 the DiT, `adapter` picks an adapter from `--adapters`, `output_format`
-picks the output encoder (mp3, wav16, wav24, wav32). Models are loaded
-once and reused across all requests.
+picks the output encoder (wav/wav16/wav24/wav32 always; mp3/opus/flac when
+the matching CMake flag is on). Models are loaded once and reused across
+all requests.
 
 When `adapter` is set, deltas are merged into the DiT projection weights
 at load time (before QKV fusion and GPU upload). For LoRA, the safetensors
@@ -952,15 +969,21 @@ layout neural-codec writes as `.vae` files. Hard cap T <= 15000 frames
 `lm_model`, `synth_model`, `adapter`, `adapter_scale` fields in the JSON body
 select which model and adapter to load. `lm_mode` picks the LM instruction
 (`"generate"`, `"inspire"`, `"format"`); `output_format` picks the audio
-encoder for `/synth` (`"mp3"`, `"wav16"`, `"wav24"`, `"wav32"`).
-`synth_batch_size` duplicates a request for multiple DiT variations
+encoder for `/synth` (`"wav"`/`"wav16"`, `"wav24"`, `"wav32"`, `"mp3"`,
+`"opus"`, `"flac"` — only the codecs compiled in via `-DMP3`/`-DOPUS`/
+`-DFLAC` are accepted; the `/props` `audio_formats` array is the canonical
+list). `synth_batch_size` duplicates a request for multiple DiT variations
 (clamped to 9). Error responses are JSON: `{"error":"message"}` with 400,
 500, 501, or 503 status.
 
-**GET /props** returns available models, server configuration, and the
-default AceRequest (source of truth for webui dropdowns and placeholders):
+**GET /props** returns available models, server configuration, the
+default AceRequest (source of truth for webui dropdowns and placeholders),
+and `audio_formats` — the array of output codecs this server build can
+actually produce. The webui reads `audio_formats` to populate the format
+dropdown:
 ```json
 {
+  "audio_formats": ["wav16", "wav24", "wav32", "mp3", "opus", "flac"],
   "models": {
     "lm": ["acestep-5Hz-lm-0.6B-Q8_0.gguf", "acestep-5Hz-lm-4B-Q8_0.gguf"],
     "embedding": ["Qwen3-Embedding-0.6B-Q8_0.gguf"],
@@ -1065,25 +1088,30 @@ on most material).
 
 ## mp3-codec reference
 
-Standalone MIT-licensed MPEG1 Layer III encoder and decoder. No external
-dependencies. The encoder is used by `ace-synth` for MP3 output. The decoder
-uses minimp3 (CC0). Reads WAV or MP3, writes WAV or MP3 (auto-detected
-from output extension).
+Generic standalone audio transcoder. Reads WAV (always), MP3 (`-DMP3`),
+FLAC (`-DFLAC`) or Ogg Opus (`-DOPUS`) input; writes `.wav`, `.mp3`,
+`.opus` or `.flac` output (auto-detected from the output extension). Output
+codecs that are not compiled in fail with a message listing the available
+formats. The binary keeps the historical `mp3-codec` name even though it
+handles every supported container.
 
 ```
 Usage: ./mp3-codec -i <input> -o <output> [options]
 
-  -i <path>     Input file (WAV or MP3)
-  -o <path>     Output file (WAV or MP3)
-  -b <kbps>     Bitrate for MP3 encoding (default: 128)
-  --format <fmt>  WAV format: wav16, wav24, wav32 (default: wav16)
+  -i <path>          Input file (WAV always; MP3/FLAC/Opus when built)
+  -o <path>          Output file (.wav/.mp3/.opus/.flac)
+  -q <quality>       Codec quality (codec-specific scale, default: -1)
+                     MP3 0..9 (VBR -V), Opus 0..10 (complexity), FLAC 0..8 (level)
+  -b <kbps>          Bitrate for lossy codecs (default: -1 = codec default)
+  --format <fmt>     WAV sub-format: wav16, wav24, wav32 (default: wav16).
+                     Ignored when -o is not a .wav file.
 
-Mode is auto-detected from output extension.
+Direction is auto-detected from output extension.
 
 Examples:
   ./mp3-codec -i song.wav -o song.mp3
   ./mp3-codec -i song.wav -o song.mp3 -b 192
-  ./mp3-codec -i song.mp3 -o song.wav
+  ./mp3-codec -i song.flac -o song.opus -q 8
   ./mp3-codec -i song.mp3 -o song.wav --format wav32
 ```
 

@@ -100,8 +100,12 @@ struct AceRequest {
     // "format" (caption + lyrics -> metadata + lyrics, no codes). Default: generate.
     std::string lm_mode;  // "generate"
 
-    // Audio output format: "mp3", "wav16", "wav24", "wav32". Default: mp3.
-    std::string output_format;  // "mp3"
+    // Audio output format: "wav" (alias for "wav16"), "wav16", "wav24",
+    // "wav32", "mp3", "opus", "flac". Default: wav16. Codec-specific
+    // output formats require the matching CMake flag (-DMP3 / -DOPUS /
+    // -DFLAC); the server returns HTTP 400 with the compiled-in list when
+    // the requested codec is not built.
+    std::string output_format;  // "wav16"
 
     // model selection. synth_model, lm_model and vae are resolved through
     // the registry scanned from --models <dir>, by both the HTTP server and
@@ -120,9 +124,14 @@ struct AceRequest {
     // 999 = max (99.9001th percentile, clips top 0.1%).
     int peak_clip;  // 10
 
-    // audio output: MP3 encoder bitrate in kbps. Applies only when
-    // output_format is "mp3". WAV outputs ignore this field.
-    int mp3_bitrate;  // 128
+    // Codec quality/bitrate, interpreted on each codec's native scale:
+    //   MP3:  bitrate>0 = ABR kbps; else quality 0..9 = LAME VBR -V quality
+    //   Opus: bitrate>0 = target kbps; quality 0..10 = OPUS_SET_COMPLEXITY
+    //   FLAC: quality 0..8 = compression level; bitrate ignored (lossless)
+    //   WAV:  ignored
+    // -1 = use the library default. WAV output ignores both.
+    int quality;  // -1
+    int bitrate;  // -1
 };
 
 // Initialize all fields to defaults (matches Python GenerationParams defaults)

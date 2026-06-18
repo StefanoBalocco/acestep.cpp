@@ -1,0 +1,7 @@
+# GGML development files not needed at runtime
+usr/include/
+usr/lib/*/cmake/
+usr/lib/*/libggml-base.so
+usr/lib/*/libggml.so
+# Backend .so files — packaged separately, not in base
+usr/lib/*/acestep.cpp/

@@ -679,8 +679,7 @@ static void synth_worker(std::shared_ptr<Job>    job,
                          int                     ref_len,
                          std::vector<float>      ref_latents,
                          int                     ref_T_latent,
-                         bool                    output_wav,
-                         WavFormat               wav_fmt,
+                         AudioFormat             out_fmt,
                          int                     peak_clip) {
     // Generate every request in one DiT batch. synth_batch_size expands each
     // request into per-seed variants. Total clamped to DiT max 9.
@@ -832,23 +831,21 @@ static void synth_worker(std::shared_ptr<Job>    job,
 
     const int total_tracks = total_alloc;
 
-    // encode each track (peak normalize + encode)
-    const char * mime = output_wav ? "audio/wav" : "audio/mpeg";
+    // encode each track. audio_encode does not normalize, so do it here for
+    // every codec except WAV_F32 (passthrough path).
+    const bool    skip_norm = (out_fmt.codec == CODEC_WAV && out_fmt.wav_subformat == WAV_F32);
+    const char *  mime      = audio_format_mime(out_fmt);
 
     std::vector<std::string> encoded(total_tracks);
     for (int b = 0; b < total_tracks; b++) {
         if (!audio[b].samples) {
             continue;
         }
-        if (!output_wav || wav_fmt != WAV_F32) {
+        if (!skip_norm) {
             audio_normalize(audio[b].samples, audio[b].n_samples * 2, peak_clip);
         }
-        if (output_wav) {
-            encoded[b] = audio_encode_wav(audio[b].samples, audio[b].n_samples, 48000, wav_fmt);
-        } else {
-            encoded[b] = audio_encode_mp3(audio[b].samples, audio[b].n_samples, 48000, groups[0][b].mp3_bitrate,
-                                          server_cancel_job, (void *) &job->cancel);
-        }
+        encoded[b] = audio_encode(audio[b].samples, audio[b].n_samples, 48000, out_fmt, groups[0][b].quality,
+                                  groups[0][b].bitrate, server_cancel_job, (void *) &job->cancel);
         ace_audio_free(&audio[b]);
     }
 
@@ -1006,17 +1003,15 @@ static void handle_synth(const httplib::Request & req, httplib::Response & res) 
         return;
     }
 
-    // Output format from AceRequest.output_format. Converts the string to
-    // (output_wav, wav_fmt) using the same parser the CLI uses.
-    bool      output_wav = false;
-    WavFormat wav_fmt    = WAV_S16;
-    {
-        bool is_mp3 = true;
-        if (!audio_parse_format(ace_reqs[0].output_format.c_str(), is_mp3, wav_fmt)) {
-            json_error(res, 400, "Invalid output_format (use: mp3, wav16, wav24, wav32)");
-            return;
-        }
-        output_wav = !is_mp3;
+    // Output format from AceRequest.output_format. Audio_parse_format
+    // returns false on unknown strings or codecs not compiled into this
+    // build; we surface that as HTTP 400 with the compiled-in list.
+    AudioFormat out_fmt{ CODEC_WAV, WAV_S16 };
+    if (!audio_parse_format(ace_reqs[0].output_format.c_str(), out_fmt)) {
+        std::string msg = "Invalid or unavailable output_format '" + ace_reqs[0].output_format +
+                          "' (compiled-in formats: " + audio_available_formats_text() + ")";
+        json_error(res, 400, msg.c_str());
+        return;
     }
     int peak_clip = ace_reqs[0].peak_clip;
 
@@ -1025,10 +1020,10 @@ static void handle_synth(const httplib::Request & req, httplib::Response & res) 
     fprintf(stderr, "[Server] Job %s created (%d requests)\n", job->id.c_str(), (int) ace_reqs.size());
 
     work_push([job, reqs = std::move(ace_reqs), src_interleaved, src_len, src_lat = std::move(src_latents),
-               src_T_latent, ref_interleaved, ref_len, ref_lat = std::move(ref_latents), ref_T_latent, output_wav,
-               wav_fmt, peak_clip]() mutable {
+               src_T_latent, ref_interleaved, ref_len, ref_lat = std::move(ref_latents), ref_T_latent, out_fmt,
+               peak_clip]() mutable {
         synth_worker(job, std::move(reqs), src_interleaved, src_len, std::move(src_lat), src_T_latent, ref_interleaved,
-                     ref_len, std::move(ref_lat), ref_T_latent, output_wav, wav_fmt, peak_clip);
+                     ref_len, std::move(ref_lat), ref_T_latent, out_fmt, peak_clip);
     });
 
     // return job ID immediately
@@ -1216,8 +1211,7 @@ static void decode_worker(std::shared_ptr<Job> job,
                           AceRequest           ace_req,
                           std::vector<float>   src_latents,
                           int                  src_T_latent,
-                          bool                 output_wav,
-                          WavFormat            wav_fmt,
+                          AudioFormat          out_fmt,
                           int                  peak_clip) {
     if (job->cancel.load()) {
         job->status.store(JobStatus::CANCELLED);
@@ -1264,20 +1258,17 @@ static void decode_worker(std::shared_ptr<Job> job,
         g_loaded_vae.clear();
     }
 
-    // Encode the audio (peak normalize then mp3 or wav). vae_ggml_decode_tiled
-    // writes interleaved stereo, audio_normalize and the encoders consume
-    // the same layout the synth path uses.
-    if (!output_wav || wav_fmt != WAV_F32) {
+    // Encode the audio. audio_encode does not normalize, so do it here for
+    // every codec except WAV_F32 (passthrough). vae_ggml_decode_tiled writes
+    // interleaved stereo, audio_normalize and the encoders consume the same
+    // layout the synth path uses.
+    const bool   skip_norm = (out_fmt.codec == CODEC_WAV && out_fmt.wav_subformat == WAV_F32);
+    const char * mime      = audio_format_mime(out_fmt);
+    if (!skip_norm) {
         audio_normalize(audio_buf.data(), T_audio * 2, peak_clip);
     }
-    std::string  encoded;
-    const char * mime = output_wav ? "audio/wav" : "audio/mpeg";
-    if (output_wav) {
-        encoded = audio_encode_wav(audio_buf.data(), T_audio, 48000, wav_fmt);
-    } else {
-        encoded = audio_encode_mp3(audio_buf.data(), T_audio, 48000, ace_req.mp3_bitrate, server_cancel_job,
-                                   (void *) &job->cancel);
-    }
+    std::string encoded = audio_encode(audio_buf.data(), T_audio, 48000, out_fmt, ace_req.quality, ace_req.bitrate,
+                                       server_cancel_job, (void *) &job->cancel);
 
     // Response: raw audio, single Content-Type. No latent in the body: the
     // client just uploaded it, echoing it back would only burn bandwidth.
@@ -1464,23 +1455,20 @@ static void handle_vae(const httplib::Request & req, httplib::Response & res) {
     std::vector<float> src_latents(reinterpret_cast<const float *>(file.content.data()),
                                    reinterpret_cast<const float *>(file.content.data()) + (size_t) T * LATENT_CHANNELS);
 
-    bool      output_wav = false;
-    WavFormat wav_fmt    = WAV_S16;
-    {
-        bool is_mp3 = true;
-        if (!audio_parse_format(ace_req.output_format.c_str(), is_mp3, wav_fmt)) {
-            json_error(res, 400, "Invalid output_format (use: mp3, wav16, wav24, wav32)");
-            return;
-        }
-        output_wav = !is_mp3;
+    AudioFormat out_fmt{ CODEC_WAV, WAV_S16 };
+    if (!audio_parse_format(ace_req.output_format.c_str(), out_fmt)) {
+        std::string msg = "Invalid or unavailable output_format '" + ace_req.output_format +
+                          "' (compiled-in formats: " + audio_available_formats_text() + ")";
+        json_error(res, 400, msg.c_str());
+        return;
     }
     int peak_clip = ace_req.peak_clip;
 
     auto job = job_create();
     fprintf(stderr, "[Server] Job %s created (vae decode, %d latent frames)\n", job->id.c_str(), T);
 
-    work_push([job, ace_req, latents = std::move(src_latents), T, output_wav, wav_fmt, peak_clip]() mutable {
-        decode_worker(job, ace_req, std::move(latents), T, output_wav, wav_fmt, peak_clip);
+    work_push([job, ace_req, latents = std::move(src_latents), T, out_fmt, peak_clip]() mutable {
+        decode_worker(job, ace_req, std::move(latents), T, out_fmt, peak_clip);
     });
 
     std::string body = "{\"id\":\"" + job->id + "\"}";
@@ -1496,6 +1484,25 @@ static void handle_props(const httplib::Request &, httplib::Response & res) {
     yyjson_mut_doc_set_root(doc, root);
 
     yyjson_mut_obj_add_str(doc, root, "version", ACE_VERSION);
+
+    // audio_formats: codec list compiled into this build. The webui uses
+    // this to populate the format dropdown; requests for any other format
+    // are rejected at the handler with a 400 listing these names.
+    yyjson_mut_val * audio_formats = yyjson_mut_arr(doc);
+    auto             add_format = [&](const char * name) { yyjson_mut_arr_add_str(doc, audio_formats, name); };
+    add_format(OUTPUT_FORMAT_WAV16);
+    add_format(OUTPUT_FORMAT_WAV24);
+    add_format(OUTPUT_FORMAT_WAV32);
+    if (audio_codec_available(CODEC_MP3)) {
+        add_format(OUTPUT_FORMAT_MP3);
+    }
+    if (audio_codec_available(CODEC_OPUS)) {
+        add_format(OUTPUT_FORMAT_OPUS);
+    }
+    if (audio_codec_available(CODEC_FLAC)) {
+        add_format(OUTPUT_FORMAT_FLAC);
+    }
+    yyjson_mut_obj_add_val(doc, root, "audio_formats", audio_formats);
 
     // helper: build a JSON array of model entry names
     auto add_names = [&](yyjson_mut_val * parent, const char * key, const std::vector<ModelEntry> & bucket) {

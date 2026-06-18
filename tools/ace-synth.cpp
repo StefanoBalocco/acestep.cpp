@@ -174,12 +174,11 @@ int main(int argc, char ** argv) {
         }
     }
 
-    // Resolve output_format to (is_mp3, wav_fmt).
-    bool      is_mp3  = true;
-    WavFormat wav_fmt = WAV_S16;
-    if (!audio_parse_format(reqs[0].output_format.c_str(), is_mp3, wav_fmt)) {
-        fprintf(stderr, "[Ace-Synth] FATAL: invalid output_format '%s' (use: mp3, wav16, wav24, wav32)\n",
-                reqs[0].output_format.c_str());
+    // Resolve output_format to an AudioFormat descriptor.
+    AudioFormat out_fmt{ CODEC_WAV, WAV_S16 };
+    if (!audio_parse_format(reqs[0].output_format.c_str(), out_fmt)) {
+        fprintf(stderr, "[Ace-Synth] FATAL: invalid or unavailable output_format '%s' (compiled-in formats: %s)\n",
+                reqs[0].output_format.c_str(), audio_available_formats_text().c_str());
         return 1;
     }
 
@@ -315,11 +314,11 @@ int main(int argc, char ** argv) {
         if (!all_audio[b].samples) {
             continue;
         }
-        const char * ext = is_mp3 ? ".mp3" : ".wav";
+        const char * ext = audio_format_extension(out_fmt);
         char         out_path[1024];
         snprintf(out_path, sizeof(out_path), "%s%d%s", all_basenames[b].c_str(), all_synth_indices[b], ext);
-        if (!audio_write(out_path, all_audio[b].samples, all_audio[b].n_samples, 48000, groups[0][b].mp3_bitrate,
-                         wav_fmt)) {
+        if (!audio_write(out_path, all_audio[b].samples, all_audio[b].n_samples, 48000, out_fmt,
+                         groups[0][b].quality, groups[0][b].bitrate)) {
             fprintf(stderr, "[Ace-Synth Batch%d] FATAL: failed to write %s\n", b, out_path);
         }
         ace_audio_free(&all_audio[b]);

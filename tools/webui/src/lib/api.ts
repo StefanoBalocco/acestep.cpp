@@ -245,7 +245,7 @@ function parseMultipartParts(buf: Uint8Array, boundary: string): MultipartPart[]
 }
 
 // Split typed parts into audio blobs and latent blobs. Audio parts keep their
-// per-part mime (audio/mpeg or audio/wav). Audio and latent arrays grow in
+// per-part mime (audio/wav, audio/mpeg, audio/ogg or audio/flac). Audio and latent arrays grow in
 // wire order so audios[i] is paired with latents[i] for /synth responses.
 function parseMultipartTyped(buf: Uint8Array, boundary: string): SynthResult {
 	const parts = parseMultipartParts(buf, boundary);
@@ -266,9 +266,9 @@ function parseMultipartTyped(buf: Uint8Array, boundary: string): SynthResult {
 // decode (audio out). Mutually exclusive, server rejects both or neither.
 // The result body carries only the opposite side: the client already holds
 // the one it just uploaded. The full request JSON drives model selection,
-// output format, normalization and bitrate, exactly like /synth: encode
-// reads only `vae`, decode reads `vae` + `output_format` + `peak_clip` +
-// `mp3_bitrate`, the rest is silently ignored.
+// output format, normalization and codec params, exactly like /synth:
+// encode reads only `vae`, decode reads `vae` + `output_format` + `peak_clip`
+// + `quality` + `bitrate`, the rest is silently ignored.
 export function vaeEncode(audio: Blob, request: AceRequest): Promise<string> {
 	const form = new FormData();
 	form.append('audio', audio, 'src.audio');

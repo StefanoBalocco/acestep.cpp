@@ -374,13 +374,14 @@ int main(int argc, char ** argv) {
             output_path = argv[++i];
         } else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
             output_path = argv[++i];
-        } else if (strcmp(argv[i], "--format") == 0 && i + 1 < argc) {
-            bool dummy_mp3;
-            if (!audio_parse_format(argv[++i], dummy_mp3, wav_fmt)) {
-                fprintf(stderr, "Unknown format: %s\n", argv[i]);
-                print_usage(argv[0]);
-                return 1;
-            }
+	} else if (strcmp(argv[i], "--format") == 0 && i + 1 < argc) {
+			AudioFormat parsed{ CODEC_WAV, WAV_S16 };
+			if (!audio_parse_format(argv[++i], parsed)) {
+				fprintf(stderr, "Unknown WAV format: %s\n", argv[i]);
+				print_usage(argv[0]);
+				return 1;
+			}
+			wav_fmt = parsed.wav_subformat;
         } else if (strcmp(argv[i], "--vae-chunk") == 0 && i + 1 < argc) {
             chunk_size = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--vae-overlap") == 0 && i + 1 < argc) {
@@ -498,12 +499,13 @@ int main(int argc, char ** argv) {
             return 1;
         }
 
-        if (audio_write(output_path, audio.data(), T_audio, 48000, 0, wav_fmt)) {
-            fprintf(stderr, "\n[VAE] Output: %s (%d samples, %.2fs @ 48kHz)\n", output_path, T_audio,
-                    (float) T_audio / 48000.0f);
-        } else {
-            fprintf(stderr, "[VAE] FATAL: failed to write %s\n", output_path);
-        }
+		AudioFormat out_fmt{ CODEC_WAV, wav_fmt };
+		if (audio_write(output_path, audio.data(), T_audio, 48000, out_fmt, -1, -1)) {
+			fprintf(stderr, "\n[VAE] Output: %s (%d samples, %.2fs @ 48kHz)\n", output_path, T_audio,
+			        (float) T_audio / 48000.0f);
+		} else {
+			fprintf(stderr, "[VAE] FATAL: failed to write %s\n", output_path);
+		}
 
         vae_ggml_free(&dec);
         fprintf(stderr, "[VAE] Done.\n");

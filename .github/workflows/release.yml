@@ -43,7 +43,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake build-essential pkg-config libopenblas-dev
+          sudo apt-get install -y -qq cmake build-essential pkg-config libopenblas-dev gzip sed libmp3lame-dev libflac-dev libopusenc-dev libopusfile-dev
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -124,7 +124,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake ..
+          cmake .. -DTOOLS=ON
           cmake --build . --config Release -j "$(nproc)"
 
       - name: Smoke test
@@ -215,6 +215,7 @@ jobs:
             -DGGML_CUDA=ON `
             -DGGML_VULKAN=ON `
             -DGGML_BACKEND_DL=ON `
+            -DTOOLS=ON `
             --log-level=ERROR 2>&1 | Where-Object { $_ -notmatch '^--' }
 
           # Build — suppress per-file progress, only show warnings/errors

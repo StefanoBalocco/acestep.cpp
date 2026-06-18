@@ -53,14 +53,15 @@ void request_init(AceRequest * r) {
     r->solver               = SOLVER_EULER;
     r->stork_substeps       = STORK_SUBSTEPS_DEFAULT;
     r->lm_mode              = LM_MODE_NAME_GENERATE;
-    r->output_format        = OUTPUT_FORMAT_MP3;
+    r->output_format        = OUTPUT_FORMAT_WAV16;
     r->synth_model          = "";
     r->lm_model             = "";
     r->adapter              = "";
     r->adapter_scale        = 1.0f;
     r->vae                  = "";
     r->peak_clip            = 10;
-    r->mp3_bitrate          = 128;
+    r->quality              = -1;
+    r->bitrate              = -1;
 }
 
 // helper: get yyjson string as std::string
@@ -200,8 +201,11 @@ static void request_parse_obj(yyjson_val * obj, AceRequest * r) {
     if ((v = yyjson_obj_get(obj, "peak_clip")) && yyjson_is_num(v)) {
         r->peak_clip = (int) yyjson_get_num(v);
     }
-    if ((v = yyjson_obj_get(obj, "mp3_bitrate")) && yyjson_is_num(v)) {
-        r->mp3_bitrate = (int) yyjson_get_num(v);
+    if ((v = yyjson_obj_get(obj, "quality")) && yyjson_is_num(v)) {
+        r->quality = (int) yyjson_get_num(v);
+    }
+    if ((v = yyjson_obj_get(obj, "bitrate")) && yyjson_is_num(v)) {
+        r->bitrate = (int) yyjson_get_num(v);
     }
     if ((v = yyjson_obj_get(obj, "adapter_scale")) && yyjson_is_num(v)) {
         r->adapter_scale = (float) yyjson_get_num(v);
@@ -450,8 +454,11 @@ static yyjson_mut_doc * request_build_doc(const AceRequest * r, bool sparse) {
     if (all || r->peak_clip != def.peak_clip) {
         yyjson_mut_obj_add_int(doc, root, "peak_clip", r->peak_clip);
     }
-    if (all || r->mp3_bitrate != def.mp3_bitrate) {
-        yyjson_mut_obj_add_int(doc, root, "mp3_bitrate", r->mp3_bitrate);
+    if (all || r->quality != def.quality) {
+        yyjson_mut_obj_add_int(doc, root, "quality", r->quality);
+    }
+    if (all || r->bitrate != def.bitrate) {
+        yyjson_mut_obj_add_int(doc, root, "bitrate", r->bitrate);
     }
     if (all || r->synth_model != def.synth_model) {
         yyjson_mut_obj_add_str(doc, root, "synth_model", r->synth_model.c_str());
@@ -540,8 +547,11 @@ void request_dump(const AceRequest * r, FILE * f) {
     if (r->peak_clip != 10) {
         fprintf(f, "[Request] peak_clip: %d\n", r->peak_clip);
     }
-    if (r->output_format == "mp3" && r->mp3_bitrate != 128) {
-        fprintf(f, "[Request] mp3_bitrate: %d kbps\n", r->mp3_bitrate);
+    if (r->quality != -1) {
+        fprintf(f, "[Request] quality: %d\n", r->quality);
+    }
+    if (r->bitrate != -1) {
+        fprintf(f, "[Request] bitrate: %d kbps\n", r->bitrate);
     }
     if (!r->synth_model.empty()) {
         fprintf(f, "[Request] synth_model: %s\n", r->synth_model.c_str());

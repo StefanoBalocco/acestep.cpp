@@ -29,6 +29,35 @@ export const DCW_MODE_HIGH = 'high';
 export const DCW_MODE_DOUBLE = 'double';
 export const DCW_MODE_PIX = 'pix';
 
+// Output format keys (mirrors task-types.h OUTPUT_FORMAT_*). Sent as the
+// `output_format` field on AceRequest.
+export const OUTPUT_FORMAT_WAV16 = 'wav16';
+export const OUTPUT_FORMAT_WAV24 = 'wav24';
+export const OUTPUT_FORMAT_WAV32 = 'wav32';
+export const OUTPUT_FORMAT_MP3 = 'mp3';
+export const OUTPUT_FORMAT_OPUS = 'opus';
+export const OUTPUT_FORMAT_FLAC = 'flac';
+
+// Canonical list of all output formats the UI knows about.
+export const OUTPUT_FORMATS = [
+	OUTPUT_FORMAT_WAV16,
+	OUTPUT_FORMAT_WAV24,
+	OUTPUT_FORMAT_WAV32,
+	OUTPUT_FORMAT_MP3,
+	OUTPUT_FORMAT_OPUS,
+	OUTPUT_FORMAT_FLAC
+] as const;
+
+// Display name per format key, used to populate the format <select>.
+export const OUTPUT_FORMAT_LABELS: Record<string, string> = {
+	wav16: 'WAV 16-bit',
+	wav24: 'WAV 24-bit',
+	wav32: 'WAV 32-bit float',
+	mp3: 'MP3',
+	opus: 'Opus',
+	flac: 'FLAC'
+};
+
 export const TRACK_NAMES = [
 	'vocals',
 	'backing_vocals',

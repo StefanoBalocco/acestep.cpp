@@ -50,6 +50,39 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     endif()
 endif()
 
+# ---------------------------------------------------------------------------
+# Build flags. All default OFF so the out-of-the-box build is WAV-only with
+# no external audio dependencies.
+# ---------------------------------------------------------------------------
+option(TOOLS "Build the six CLI tools (ace-synth, ace-lm, ace-understand, quantize, neural-codec, mp3-codec)." OFF)
+option(FLAC "Enable FLAC encode and decode (libFLAC)" OFF)
+option(OPUS "Enable Opus encode (libopusenc) and decode (libopusfile)" OFF)
+option(MP3 "Enable MP3 encode (libmp3lame) and decode (vendored minimp3)" OFF)
+
+# ---------------------------------------------------------------------------
+# Optional codec detection. Each block fails configuration clearly when the
+# requested library is missing.
+# ---------------------------------------------------------------------------
+if(MP3)
+    find_library(MP3LAME_LIBRARY NAMES mp3lame)
+    find_path(MP3LAME_INCLUDE_DIR lame/lame.h)
+    if(NOT MP3LAME_LIBRARY OR NOT MP3LAME_INCLUDE_DIR)
+        message(FATAL_ERROR
+            "-DMP3=ON requires libmp3lame (LAME). On Debian/Ubuntu install libmp3lame-dev.")
+    endif()
+endif()
+
+if(FLAC)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FLAC REQUIRED flac IMPORTED_TARGET)
+endif()
+
+if(OPUS)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(OPUSENC REQUIRED libopusenc IMPORTED_TARGET)
+    pkg_check_modules(OPUSFILE REQUIRED opusfile IMPORTED_TARGET)
+endif()
+
 # ggml as subdirectory, inherits GGML_CUDA, GGML_METAL, etc. from cmake flags
 add_subdirectory(ggml)
 
@@ -104,6 +137,38 @@ else()
     target_compile_options(yyjson PRIVATE -w)
 endif()
 
+# ---------------------------------------------------------------------------
+# acestep-audio: compiled audio IO (WAV always, optional MP3/Opus/FLAC).
+# No GGML dependency. ace-server and audio-using tools link this.
+# ---------------------------------------------------------------------------
+add_library(acestep-audio STATIC src/audio-io.cpp)
+target_include_directories(acestep-audio PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(acestep-audio PUBLIC Threads::Threads)
+if(NOT MSVC)
+    target_link_libraries(acestep-audio PUBLIC m)
+    target_compile_options(acestep-audio PRIVATE -Wall -Wextra -Wconversion -Wno-sign-conversion)
+endif()
+add_dependencies(acestep-audio version)
+
+if(MP3)
+    target_compile_definitions(acestep-audio PUBLIC ACE_HAVE_MP3)
+    target_include_directories(acestep-audio PRIVATE ${MP3LAME_INCLUDE_DIR})
+    target_link_libraries(acestep-audio PUBLIC ${MP3LAME_LIBRARY})
+endif()
+
+if(FLAC)
+    target_compile_definitions(acestep-audio PUBLIC ACE_HAVE_FLAC)
+    target_link_libraries(acestep-audio PUBLIC PkgConfig::FLAC)
+endif()
+
+if(OPUS)
+    target_compile_definitions(acestep-audio PUBLIC ACE_HAVE_OPUS)
+    target_link_libraries(acestep-audio PUBLIC PkgConfig::OPUSENC PkgConfig::OPUSFILE)
+endif()
+
 # Core library (shared between binaries)
 add_library(acestep-core STATIC
     src/request.cpp
@@ -116,63 +181,109 @@ add_library(acestep-core STATIC
 target_link_libraries(acestep-core PUBLIC yyjson)
 link_ggml_backends(acestep-core)
 
-# ace-synth: full pipeline (text-enc + cond + dit + vae + wav)
-add_executable(ace-synth tools/ace-synth.cpp)
-target_link_libraries(ace-synth PRIVATE acestep-core)
-link_ggml_backends(ace-synth)
-
-# ace-lm: LLM inference (CoT + audio codes)
-add_executable(ace-lm tools/ace-lm.cpp)
-target_link_libraries(ace-lm PRIVATE acestep-core)
-link_ggml_backends(ace-lm)
-
+# ---------------------------------------------------------------------------
+# ace-server (always built): links acestep-core + acestep-audio + httplib.
+# ---------------------------------------------------------------------------
 # webui: convert tools/webui/public/index.html.gz to a C header for embedding.
 # the .gz is committed to git so the C++ build works without npm.
-# to update: cd tools/webui && npm install && npm run build, then rebuild ace-server.
+# to update: cd tools/webui && pnpm install && pnpm run build, then rebuild ace-server.
+#
+# Two-stage: first substitute @DEFAULTFORMAT@ with the build-time default,
+# then xxd the resulting .gz into a C header.
+if(MP3)
+    set(WEBUI_DEFAULT_FORMAT "mp3")
+elseif(OPUS)
+    set(WEBUI_DEFAULT_FORMAT "opus")
+elseif(FLAC)
+    set(WEBUI_DEFAULT_FORMAT "flac")
+else()
+    set(WEBUI_DEFAULT_FORMAT "wav16")
+endif()
+
+find_program(GZIP_EXECUTABLE gzip HINTS "C:/Program Files/Git/usr/bin" "C:/Program Files (x86)/Git/usr/bin")
+find_program(SED_EXECUTABLE sed HINTS "C:/Program Files/Git/usr/bin" "C:/Program Files (x86)/Git/usr/bin")
+if(NOT GZIP_EXECUTABLE)
+    message(FATAL_ERROR "gzip not found. Install gzip to build the embedded WebUI.")
+endif()
+if(NOT SED_EXECUTABLE)
+    message(FATAL_ERROR "sed not found. Install sed to build the embedded WebUI.")
+endif()
+
 set(WEBUI_INPUT "${CMAKE_CURRENT_SOURCE_DIR}/tools/public/index.html.gz")
+set(WEBUI_PREPROCESSED_GZ "${CMAKE_CURRENT_BINARY_DIR}/index.html.gz")
 set(WEBUI_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/index.html.gz.hpp")
+
+add_custom_command(
+    OUTPUT "${WEBUI_PREPROCESSED_GZ}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${WEBUI_INPUT}"
+        "-DOUTPUT=${WEBUI_PREPROCESSED_GZ}"
+        "-DDEFAULT_FORMAT=${WEBUI_DEFAULT_FORMAT}"
+        "-DGZIP_EXECUTABLE=${GZIP_EXECUTABLE}"
+        "-DSED_EXECUTABLE=${SED_EXECUTABLE}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/webui-substitute.cmake"
+    DEPENDS "${WEBUI_INPUT}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/webui-substitute.cmake"
+    COMMENT "Substituting @DEFAULTFORMAT@ -> ${WEBUI_DEFAULT_FORMAT} in webui"
+)
+
 add_custom_command(
     OUTPUT "${WEBUI_OUTPUT}"
-    COMMAND "${CMAKE_COMMAND}" "-DINPUT=${WEBUI_INPUT}" "-DOUTPUT=${WEBUI_OUTPUT}" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/xxd.cmake"
-    DEPENDS "${WEBUI_INPUT}"
+    COMMAND "${CMAKE_COMMAND}" "-DINPUT=${WEBUI_PREPROCESSED_GZ}" "-DOUTPUT=${WEBUI_OUTPUT}" -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/xxd.cmake"
+    DEPENDS "${WEBUI_PREPROCESSED_GZ}"
     COMMENT "Embedding webui into index.html.gz.hpp"
 )
 set_source_files_properties(${WEBUI_OUTPUT} PROPERTIES GENERATED TRUE)
 
-# ace-server: HTTP server (LM + synth endpoints + embedded webui)
 add_executable(ace-server tools/ace-server.cpp ${WEBUI_OUTPUT})
-target_include_directories(ace-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(ace-server PRIVATE acestep-core httplib)
+target_include_directories(ace-server PRIVATE ${CMAKE_BINARY_DIR})
+target_link_libraries(ace-server PRIVATE acestep-core acestep-audio httplib)
 link_ggml_backends(ace-server)
 
-add_executable(ace-understand tools/ace-understand.cpp)
-target_link_libraries(ace-understand PRIVATE acestep-core)
-link_ggml_backends(ace-understand)
+# ---------------------------------------------------------------------------
+# CLI tools (gated by -DTOOLS=ON)
+# ---------------------------------------------------------------------------
+if(TOOLS)
+    # ace-synth: full pipeline (text-enc + cond + dit + vae + audio out)
+    add_executable(ace-synth tools/ace-synth.cpp)
+    target_link_libraries(ace-synth PRIVATE acestep-core acestep-audio)
+    link_ggml_backends(ace-synth)
 
-# quantize: GGUF requantizer (BF16 -> K-quants)
-add_executable(quantize tools/quantize.cpp)
-link_ggml_backends(quantize)
+    # ace-lm: LLM inference (CoT + audio codes)
+    add_executable(ace-lm tools/ace-lm.cpp)
+    target_link_libraries(ace-lm PRIVATE acestep-core)
+    link_ggml_backends(ace-lm)
 
-# neural-codec: Oobleck VAE neural audio codec (encode/decode WAV <-> latent)
-add_executable(neural-codec tools/neural-codec.cpp)
-link_ggml_backends(neural-codec)
+    # ace-understand: reverse pipeline (audio -> metadata)
+    add_executable(ace-understand tools/ace-understand.cpp)
+    target_link_libraries(ace-understand PRIVATE acestep-core acestep-audio)
+    link_ggml_backends(ace-understand)
 
-# mp3-codec: MP3 encoder/decoder (standalone, no ggml needed)
-# The mp3/ headers are header-only and usable by ace-synth too via #include "mp3/mp3enc.h"
-add_executable(mp3-codec tools/mp3-codec.cpp)
-target_include_directories(mp3-codec PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR}
-)
-add_dependencies(mp3-codec version)
-if(MSVC)
-    target_compile_options(mp3-codec PRIVATE /W4 /wd4100 /wd4505)
-else()
-    target_compile_options(mp3-codec PRIVATE -Wall -Wextra -Wconversion
-                          -Wno-unused-parameter -Wno-unused-function -Wno-sign-conversion)
-    target_link_libraries(mp3-codec PRIVATE m)
+    # quantize: GGUF requantizer (BF16 -> K-quants)
+    add_executable(quantize tools/quantize.cpp)
+    link_ggml_backends(quantize)
+
+    # neural-codec: Oobleck VAE neural audio codec (encode/decode WAV <-> latent)
+    add_executable(neural-codec tools/neural-codec.cpp)
+    target_link_libraries(neural-codec PRIVATE acestep-audio)
+    link_ggml_backends(neural-codec)
+
+    # mp3-codec: standalone audio transcoder (.wav/.mp3/.opus/.flac).
+    # Generic converter; no GGML dependency. The binary keeps the historical
+    # name even though it now handles more than MP3.
+    add_executable(mp3-codec tools/mp3-codec.cpp)
+    target_link_libraries(mp3-codec PRIVATE acestep-audio)
+    target_include_directories(mp3-codec PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    add_dependencies(mp3-codec version)
+    if(MSVC)
+        target_compile_options(mp3-codec PRIVATE /W4 /wd4100 /wd4505)
+    else()
+        target_compile_options(mp3-codec PRIVATE -Wall -Wextra -Wconversion
+                              -Wno-unused-parameter -Wno-unused-function -Wno-sign-conversion)
+    endif()
 endif()
-target_link_libraries(mp3-codec PRIVATE Threads::Threads)
 
 add_subdirectory(tests)

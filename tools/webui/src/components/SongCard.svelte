@@ -154,7 +154,19 @@
 		const a = document.createElement('a');
 		a.href = url;
 		const safe = displayName.replace(/[\\/:*?"<>|\x00-\x1f]/g, '') || 'song';
-		const ext = song.format.startsWith('wav') ? '.wav' : '.mp3';
+		// Map the format key (matches OUTPUT_FORMAT_* in config.ts) to a file
+		// extension. All WAV variants land on .wav; the lossy/lossless codecs
+		// use their container extension.
+		const extByFormat: Record<string, string> = {
+			wav: '.wav',
+			wav16: '.wav',
+			wav24: '.wav',
+			wav32: '.wav',
+			mp3: '.mp3',
+			opus: '.opus',
+			flac: '.flac'
+		};
+		const ext = extByFormat[song.format] ?? '.bin';
 		a.download = `${safe}${ext}`;
 		a.click();
 		URL.revokeObjectURL(url);

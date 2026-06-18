@@ -1,4 +1,5 @@
 import type { AceRequest, AceProps, Song } from './types.js';
+import { OUTPUT_FORMATS } from './config.js';
 
 const STORAGE_KEY = 'ace';
 
@@ -16,10 +17,11 @@ function load(): Saved {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
+			const known = OUTPUT_FORMATS;
 			return {
 				name: parsed.name || '',
 				volume: parsed.volume ?? 0.5,
-				format: ['mp3', 'wav16', 'wav24', 'wav32'].includes(parsed.format) ? parsed.format : 'mp3',
+				format: known.includes(parsed.format) ? parsed.format : '@DEFAULTFORMAT@',
 				dark: parsed.dark ?? true,
 				logsOpen: parsed.logsOpen ?? true,
 				request: parsed.request || { caption: '', use_cot_caption: true }
@@ -31,7 +33,7 @@ function load(): Saved {
 	return {
 		name: '',
 		volume: 0.5,
-		format: 'mp3',
+		format: '@DEFAULTFORMAT@',
 		dark: false,
 		logsOpen: true,
 		request: { caption: '', use_cot_caption: true }
@@ -105,5 +107,16 @@ $effect.root(() => {
 			request: app.request
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+	});
+});
+
+// reset format to wav16 when the server-reported formats do not include the
+// persisted value (e.g. a codec was compiled out)
+$effect.root(() => {
+	$effect(() => {
+		const formats = app.props?.audio_formats;
+		if( formats && !formats.includes( app.format ) ) {
+			app.format = 'wav16';
+		}
 	});
 });

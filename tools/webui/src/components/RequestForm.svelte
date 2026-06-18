@@ -33,7 +33,9 @@
 		DCW_MODE_HIGH,
 		DCW_MODE_DOUBLE,
 		DCW_MODE_PIX,
-		TRACK_NAMES
+		TRACK_NAMES,
+		OUTPUT_FORMATS,
+		OUTPUT_FORMAT_LABELS
 	} from '../lib/config.js';
 	import {
 		num,
@@ -56,6 +58,13 @@
 	let ditModels = $derived(app.props?.models.dit ?? []);
 	let lmModels = $derived(app.props?.models.lm ?? []);
 	let adapterList = $derived(app.props?.adapters ?? []);
+	// Available output formats: filter the canonical list by what the server
+	// advertises; assume all when props haven't arrived yet.
+	let audioFormats = $derived(
+		app.props?.audio_formats
+			? OUTPUT_FORMATS.filter((format: string) => app.props!.audio_formats.includes(format))
+			: OUTPUT_FORMATS
+	);
 	let adapterStale = $derived(
 		!!app.request.adapter && !adapterList.includes(String(app.request.adapter))
 	);
@@ -268,9 +277,18 @@
 			return;
 		}
 
-		// MP3 or WAV: create song card (audio only, use Scan for metadata)
-		if (ext === 'mp3' || ext === 'wav') {
-			openAudio(file, ext);
+		// Audio file: create song card (audio only, use Scan for metadata).
+		// The browser does not always know how to decode opus/flac tags from
+		// the extension, so we map the small set we support to the matching
+		// MIME and let the server validate the actual bytes.
+		const audioExtMap: Record<string, string> = {
+			wav: 'audio/wav',
+			mp3: 'audio/mpeg',
+			opus: 'audio/ogg',
+			flac: 'audio/flac'
+		};
+		if (audioExtMap[ext]) {
+			openAudio(file, ext, audioExtMap[ext]);
 			return;
 		}
 
@@ -286,11 +304,10 @@
 
 	// open audio file: create song card with audio only (no server call).
 	// use Scan on the card to analyze metadata.
-	async function openAudio(file: File, ext: string) {
-		const blob = new Blob([await file.arrayBuffer()], {
-			type: ext === 'wav' ? 'audio/wav' : 'audio/mpeg'
-		});
-		const name = file.name.replace(/\.(mp3|wav)$/i, '') || 'Imported';
+	async function openAudio(file: File, ext: string, mime: string) {
+		const blob = new Blob([await file.arrayBuffer()], { type: mime });
+		const re = new RegExp(`\\.(wav|mp3|opus|flac)$`, 'i');
+		const name = file.name.replace(re, '') || 'Imported';
 		const song: Song = {
 			name,
 			format: ext,
@@ -556,7 +573,7 @@
 <form class="request-form" onsubmit={(e) => e.preventDefault()}>
 	<input
 		type="file"
-		accept=".json,.yml,.yaml,.mp3,.wav,.vae"
+		accept=".json,.yml,.yaml,.mp3,.wav,.opus,.flac,.vae"
 		bind:this={fileInput}
 		onchange={onFileSelected}
 		hidden
@@ -1065,10 +1082,19 @@
 					/></label
 				>
 				<label
-					>MP3 bitrate <input
+					>Bitrate <input
 						type="text"
-						placeholder={ph(d?.mp3_bitrate)}
-						bind:value={app.request.mp3_bitrate}
+						placeholder={ph(d?.bitrate)}
+						bind:value={app.request.bitrate}
+						title="Codec bitrate in kbps for lossy formats (MP3, Opus). -1 = codec default. Ignored by WAV/FLAC."
+					/></label
+				>
+				<label
+					>Quality <input
+						type="text"
+						placeholder={ph(d?.quality)}
+						bind:value={app.request.quality}
+						title="Codec quality on its native scale: MP3 0..9 (VBR -V), Opus 0..10 (complexity), FLAC 0..8 (compression level). -1 = codec default."
 					/></label
 				>
 			</div>
@@ -1090,12 +1116,11 @@
 		<span class="model-label">Format</span>
 		<select
 			bind:value={app.format}
-			title="Output audio format. WAV32 outputs raw IEEE float without normalization."
+			title="Output audio format. Only the codecs compiled into the server are listed. WAV32 outputs raw IEEE float without normalization."
 		>
-			<option value="mp3">MP3</option>
-			<option value="wav16">WAV16</option>
-			<option value="wav24">WAV24</option>
-			<option value="wav32">WAV32</option>
+			{#each audioFormats as key (key)}
+				<option value={key}>{OUTPUT_FORMAT_LABELS[key] ?? key}</option>
+			{/each}
 		</select>
 	</div>
 

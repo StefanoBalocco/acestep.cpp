@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create system user acestepcpp with same-name group
+        if ! id acestepcpp >/dev/null 2>&1; then
+            adduser --system --group --home /srv/acestep.cpp \
+                    --shell /usr/sbin/nologin acestepcpp
+        fi
+
+        # Add to render group for Vulkan GPU access
+        if getent group render >/dev/null 2>&1; then
+            adduser acestepcpp render || true
+        fi
+
+        # Set ownership of the data directory
+        chown -R acestepcpp:acestepcpp /srv/acestep.cpp
+    ;;
+esac
+
+#DEBHELPER#

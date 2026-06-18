@@ -1,0 +1,39 @@
+#!/usr/bin/make -f
+export DH_OPTIONS
+DPKG_EXPORT_BUILDFLAGS=1
+include /usr/share/dpkg/buildflags.mk
+
+DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+DEB_HOST_MULTIARCH  ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+
+export DEB_HOST_GNU_TYPE
+export DEB_BUILD_GNU_TYPE
+
+BUILDDIR = obj-$(DEB_HOST_GNU_TYPE)
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DGGML_BLAS=ON \
+		-DGGML_VULKAN=ON \
+		-DGGML_CUDA=ON \
+		-DGGML_CPU_ALL_VARIANTS=ON \
+		-DGGML_BACKEND_DL=ON \
+		-DMP3=ON \
+		-DFLAC=ON \
+		-DOPUS=ON \
+		-DGGML_BACKEND_DIR=/usr/lib/$(DEB_HOST_MULTIARCH)/acestep.cpp
+
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	install -D -m0755 $(BUILDDIR)/ace-server debian/tmp/usr/bin/ace-server
+	install -D -m0644 models/README.md debian/tmp/srv/acestep.cpp/models/README.md
+	install -D -m0644 adapters/README.md debian/tmp/srv/acestep.cpp/adapters/README.md
+	install -D -m0755 models.sh debian/tmp/srv/acestep.cpp/models.sh
+
+override_dh_installsystemd:
+	dh_installsystemd -pacestep.cpp --name=acestep.cpp-cpu --no-start --no-enable
+	dh_installsystemd --no-start --no-enable

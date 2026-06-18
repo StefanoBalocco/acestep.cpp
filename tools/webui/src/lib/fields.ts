@@ -64,7 +64,8 @@ export const FIELDS: readonly FieldDef[] = [
 	{ key: 'latent_shift', section: 'advanced', type: 'num' },
 	{ key: 'latent_rescale', section: 'advanced', type: 'num' },
 	{ key: 'peak_clip', section: 'advanced', type: 'num' },
-	{ key: 'mp3_bitrate', section: 'advanced', type: 'num' },
+	{ key: 'quality', section: 'advanced', type: 'num' },
+	{ key: 'bitrate', section: 'advanced', type: 'num' },
 
 	// toolbar: preserved, not in any clear section
 	{ key: 'synth_batch_size', section: 'toolbar', type: 'num' },

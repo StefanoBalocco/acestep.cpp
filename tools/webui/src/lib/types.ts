@@ -37,7 +37,8 @@ export interface AceRequest {
 	solver?: string;
 	stork_substeps?: number;
 	peak_clip?: number;
-	mp3_bitrate?: number;
+	quality?: number;
+	bitrate?: number;
 	// server routing (not part of C++ AceRequest, parsed separately)
 	synth_model?: string;
 	lm_model?: string;
@@ -49,6 +50,7 @@ export interface AceRequest {
 // GET /props response
 export interface AceProps {
 	version: string;
+	audio_formats: string[];
 	models: {
 		lm: string[];
 		embedding: string[];

@@ -1,0 +1,7 @@
+usr/bin/
+usr/lib/*/libggml-base.so.*
+usr/lib/*/libggml.so.*
+usr/lib/*/acestep.cpp/libggml-cpu*
+srv/acestep.cpp/models/README.md srv/acestep.cpp/models/
+srv/acestep.cpp/adapters/README.md srv/acestep.cpp/adapters/
+srv/acestep.cpp/models.sh srv/acestep.cpp/
