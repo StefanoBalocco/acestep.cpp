@@ -1,3 +1,9 @@
+acestep.cpp (0.0.20260617~resolute1) resolute; urgency=low
+
+  * Ported to resolute.
+
+ -- Stefano Balocco <Stefano.Balocco@gmail.com>  Thu, 18 Jun 2026 23:33:01 +0200
+
 acestep.cpp (0.0.20260617~Balocco13+1) trixie; urgency=low
 
   * Initial Release.
