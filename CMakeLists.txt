@@ -7,8 +7,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # version.h: embed git commit hash into all binaries.
 # runs on every build, only rewrites if the hash changed.
 set(VERSION_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/version.h")
+set(ACE_VERSION_HASH "" CACHE STRING "Override git hash for version.h, used by package builds without .git")
+set(ACE_VERSION_DATE "" CACHE STRING "Override git date for version.h, used by package builds without .git")
 add_custom_target(version ALL
     COMMAND "${CMAKE_COMMAND}" "-DSRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}" "-DOUTPUT=${VERSION_OUTPUT}"
+            "-DACE_VERSION_HASH=${ACE_VERSION_HASH}" "-DACE_VERSION_DATE=${ACE_VERSION_DATE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/version.cmake"
     BYPRODUCTS "${VERSION_OUTPUT}"
     COMMENT "Checking git version"

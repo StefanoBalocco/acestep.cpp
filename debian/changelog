@@ -1,3 +1,9 @@
+acestep.cpp (0.0.20260619~Balocco13+1) trixie; urgency=medium
+
+  * Use the Debian package version for embedded build version metadata.
+
+ -- Stefano Balocco <Stefano.Balocco@gmail.com>  Fri, 19 Jun 2026 18:44:59 +0200
+
 acestep.cpp (0.0.20260617~Balocco13+1) trixie; urgency=low
 
   * Initial Release.
