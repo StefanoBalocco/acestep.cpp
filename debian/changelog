@@ -1,3 +1,9 @@
+acestep.cpp (0.0.20260617~resolute2) resolute; urgency=medium
+
+  * Added sycl package
+
+ -- Stefano Balocco <Stefano.Balocco@gmail.com>  Thu, 18 Jun 2026 23:58:55 +0200
+
 acestep.cpp (0.0.20260617~resolute1) resolute; urgency=low
 
   * Ported to resolute.

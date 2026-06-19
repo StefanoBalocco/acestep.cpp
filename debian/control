@@ -3,11 +3,11 @@ Section: sound
 Priority: optional
 Maintainer: Stefano Balocco <stefano.balocco@gmail.com>
 Build-Depends: debhelper (>= 12), cmake, pkg-config, gzip, sed,
-               libvulkan-dev, spirv-headers, glslc,
-               libblas-dev, libomp-dev,
                libmp3lame-dev, libflac-dev,
                libopusenc-dev, libopusfile-dev,
-               nvidia-cuda-toolkit (>= 12) | nvidia-cuda-dev
+               intel-oneapi-mkl-devel, intel-oneapi-dnnl-devel,
+               intel-oneapi-runtime-mkl, intel-oneapi-runtime-dnnl,
+               intel-oneapi-compiler-dpcpp-cpp | dpcpp | clang-sycl
 Standards-Version: 3.8.2
 
 Package: acestep.cpp
@@ -17,20 +17,8 @@ Description: ACE-Step 1.5 AI Music Generator using GGML
  Base package: server binary, core libraries, data directories.
  Includes the cpu backend for inference.
 
-Package: acestep.cpp-vulkan
+Package: acestep.cpp-sycl
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: ACE-Step GGML Vulkan backend
- Vulkan GPU backend.
-
-Package: acestep.cpp-cuda
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: ACE-Step GGML CUDA backend
- CUDA GPU backend. Requires NVIDIA GPU and drivers.
-
-Package: acestep.cpp-blas
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: ACE-Step GGML BLAS backend
- BLAS-accelerated CPU backend.
+Description: ACE-Step GGML SYCL backend
+ SYCL-accelerated CPU backend.

@@ -11,21 +11,30 @@ export DEB_HOST_GNU_TYPE
 export DEB_BUILD_GNU_TYPE
 
 BUILDDIR = obj-$(DEB_HOST_GNU_TYPE)
+ONEAPI_ROOT ?= /opt/intel/oneapi
+ONEAPI_VER  ?= 2026.0
 
 %:
 	dh $@
 
 override_dh_auto_configure:
+	. $(ONEAPI_ROOT)/setvars.sh && \
 	dh_auto_configure -- \
-		-DGGML_BLAS=ON \
-		-DGGML_VULKAN=ON \
-		-DGGML_CUDA=ON \
 		-DGGML_CPU_ALL_VARIANTS=ON \
 		-DGGML_BACKEND_DL=ON \
 		-DMP3=ON \
 		-DFLAC=ON \
 		-DOPUS=ON \
+		-DGGML_SYCL=ON \
+		-DGGML_SYCL_DNN=ON \
+		-DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=ON \
+		-DCMAKE_C_COMPILER=$(ONEAPI_ROOT)/compiler/$(ONEAPI_VER)/bin/icx \
+		-DCMAKE_CXX_COMPILER=$(ONEAPI_ROOT)/compiler/$(ONEAPI_VER)/bin/icpx \
 		-DGGML_BACKEND_DIR=/usr/lib/$(DEB_HOST_MULTIARCH)/acestep.cpp
+
+override_dh_auto_build:
+	. $(ONEAPI_ROOT)/setvars.sh && \
+	dh_auto_build
 
 override_dh_auto_install:
 	dh_auto_install --destdir=debian/tmp

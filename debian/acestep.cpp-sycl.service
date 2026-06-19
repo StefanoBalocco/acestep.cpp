@@ -1,5 +1,5 @@
 [Unit]
-Description=ACE-Step music generation server (CUDA)
+Description=ACE-Step music generation server (SYCL)
 After=network.target
 
 [Service]
@@ -7,7 +7,7 @@ Type=simple
 User=acestepcpp
 Group=acestepcpp
 ExecStart=/usr/bin/ace-server --host 0.0.0.0 --port 8085 --models /srv/acestep.cpp/models --adapters /srv/acestep.cpp/adapters
-Environment=GGML_BACKEND=CUDA0
+Environment=GGML_BACKEND=SYCL0
 Restart=on-failure
 RestartSec=5
 
