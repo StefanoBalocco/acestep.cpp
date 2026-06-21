@@ -1,3 +1,50 @@
+This fork adds MP3 (via LAME), FLAC, and Opus support to acestep.cpp, and
+packages the project for Debian and Ubuntu. The goal is to keep the smallest
+set of changes needed for those codecs and packages.
+
+Debian packages are available from `apt.balocco.name`:
+
+```bash
+curl -fsSL https://apt.balocco.name/key.asc | sudo tee /etc/apt/trusted.gpg.d/apt-balocco.asc > /dev/null
+echo "deb https://apt.balocco.name trixie multimedia" | sudo tee /etc/apt/sources.list.d/apt-balocco.list
+sudo apt update
+sudo apt install acestep.cpp acestep.cpp-vulkan
+sudo systemctl enable --now acestep.cpp-vulkan
+```
+
+The Debian repository also provides backend packages: `acestep.cpp-vulkan`,
+`acestep.cpp-cuda`, and `acestep.cpp-blas`.
+
+Ubuntu packages are available from Stefano Balocco's multimedia PPA:
+
+```bash
+sudo add-apt-repository ppa:stefanobalocco/multimedia
+sudo apt update
+sudo apt install acestep.cpp acestep.cpp-vulkan
+sudo systemctl enable --now acestep.cpp-vulkan
+```
+
+PPA page: <https://launchpad.net/~stefanobalocco/+archive/ubuntu/multimedia/>
+
+To build Debian/Ubuntu packages from source, install the package build
+dependencies and run `dpkg-buildpackage`:
+
+```bash
+sudo apt install debhelper cmake pkg-config gzip sed \
+    libvulkan-dev spirv-headers glslc \
+    libblas-dev libomp-dev \
+    libmp3lame-dev libflac-dev libopusenc-dev libopusfile-dev \
+    nvidia-cuda-toolkit
+
+dpkg-buildpackage -b -us -uc
+```
+
+CUDA is required for package builds: `debian/control` depends on
+`nvidia-cuda-toolkit (>= 12) | nvidia-cuda-dev`, and `debian/rules` builds
+with CUDA enabled.
+
+---
+
 # acestep.cpp
 
 Local AI music generation server with browser UI, powered by GGML.
@@ -59,48 +106,6 @@ NVCC_CCBIN=g++-13 ./buildcuda.sh # rolling release distros (Arch w/ GCC 16, etc.
 
 macOS auto-enables Metal and Accelerate BLAS with any of the above.
 
-### Audio codecs and CLI tools
-
-The default build produces only `ace-server` with **WAV-only audio output**.
-Six CLI tools (`ace-synth`, `ace-lm`, `ace-understand`, `quantize`,
-`neural-codec`, `mp3-codec`) and three optional audio codecs (MP3, Opus,
-FLAC) are turned off by default and enabled with CMake flags.
-
-| Flag       | Default | Effect |
-|------------|---------|--------|
-| `-DTOOLS`  | `OFF`   | Build the six CLI tools listed above (`ace-server` is always built). |
-| `-DMP3`    | `OFF`   | Enable MP3 encode (libmp3lame) and decode (vendored minimp3). |
-| `-DFLAC`   | `OFF`   | Enable FLAC encode and decode (libFLAC). |
-| `-DOPUS`   | `OFF`   | Enable Opus encode (libopusenc) and decode (libopusfile). |
-
-Install the development packages for each codec before building:
-
-| Output format             | CMake flag  | Debian/Ubuntu packages               |
-|---------------------------|-------------|--------------------------------------|
-| MP3                       | `-DMP3=ON`  | `libmp3lame-dev`                     |
-| Opus                      | `-DOPUS=ON` | `libopusenc-dev libopusfile-dev`     |
-| FLAC                      | `-DFLAC=ON` | `libflac-dev`                        |
-| WAV / WAV16 / WAV24 / WAV32 | (base build) | none (always available)            |
-
-Configure-time CMake will fail with a clear message if a requested codec's
-development files are missing.
-
-```bash
-cmake -B build -DTOOLS=ON -DMP3=ON -DOPUS=ON -DFLAC=ON
-cmake --build build -j$(nproc)
-```
-
-The embedded WebUI is built with `pnpm` from `tools/webui/`. Its build
-target also requires `gzip` and `sed`:
-
-```bash
-sudo apt install gzip sed
-```
-
-The initial output format in the WebUI dropdown is selected at build time
-according to compiled codec priority: MP3, Opus, FLAC, then `wav16` as
-fallback.
-
 ## Run
 
 ```bash
@@ -137,11 +142,8 @@ Memory control:
   --vae-chunk <N>         Latent frames per tile (default: 1024)
   --vae-overlap <N>       Overlap frames per side (default: 64)
 
-Output format and codec params live in the request JSON, not on the CLI:
-  output_format            wav (alias wav16), wav16, wav24, wav32, mp3, opus, flac
-  quality                  -1 = codec default; MP3 0..9 VBR -V, Opus 0..10 complexity, FLAC 0..8 level
-  bitrate                  -1 = codec default; ABR kbps for MP3, target kbps for Opus
-  peak_clip                percentile normalization (0, 10, 999)
+Output:
+  --mp3-bitrate <kbps>    MP3 bitrate (default: 128)
 
 Server:
   --host <addr>           Listen address (default: 127.0.0.1)
@@ -163,13 +165,10 @@ The server exposes four POST endpoints and two GET endpoints:
 
 **POST /lm** - Generate lyrics and audio codes from a caption. Returns JSON.
 
-**POST /synth** - Render audio codes into the output format selected by the
-`output_format` field in the request JSON (`wav`, `wav16`, `wav24`, `wav32`,
-`mp3`, `opus`, `flac`). Only the formats compiled into the server are
-accepted; the server returns HTTP 400 with the available list when an
-uncompiled codec is requested. Accepts JSON or multipart (with source audio
-or pre-encoded latents for cover/repaint modes; latents win over audio when
-both are sent on the same side).
+**POST /synth** - Render audio codes into MP3 or WAV (selected by the
+`output_format` field in the request JSON). Accepts JSON or multipart
+(with source audio or pre-encoded latents for cover/repaint modes; latents
+win over audio when both are sent on the same side).
 
 **POST /understand** - Reverse pipeline: audio in, metadata + lyrics + codes out.
 Multipart only (source audio or pre-encoded latents required, optional request JSON for params).
@@ -189,9 +188,7 @@ entirely, or feed it to /vae decode to reproduce the matching audio.
 
 **GET /health** - Returns `{"status":"ok"}`.
 
-**GET /props** - Available models, server config, default request, and
-`audio_formats` (the list of output formats compiled into this server; the
-WebUI uses it to populate the format dropdown).
+**GET /props** - Available models, server config, default parameters.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full API reference
 and AceRequest JSON specification.

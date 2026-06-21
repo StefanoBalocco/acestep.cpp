@@ -372,8 +372,9 @@ static struct ggml_tensor * vae_ggml_build_graph(struct ggml_context * ctx,
 // Output remains in m->graph_output for caller to read as needed.
 static int vae_ggml_compute(VAEGGML *     m,
                             const float * latent,    // [T_full, 64] time-major
-                            int           T_latent,  // window length to decode
-                            int           win_start = 0) {     // offset into latent
+                            int           T_latent,    // window length to decode
+                            int           win_start    = 0,        // offset into latent
+                            bool          reserve_only = false) {  // size backend buffers only, skip compute
 
     // Build graph only when T_latent changes (cached for tiled decode reuse)
     if (m->graph_T != T_latent) {
@@ -405,6 +406,26 @@ static int vae_ggml_compute(VAEGGML *     m,
         m->graph = ggml_new_graph_custom(ctx, 8192, false);
         ggml_build_forward_expand(m->graph, m->graph_output);
 
+        if (reserve_only) {
+            // Size backend buffers for the worst-case tile, without allocating or
+            // computing. graph_T is reset to 0 so the next real tile rebuilds and
+            // allocates; the reserved buffers then absorb every tile <= chunk_size
+            // with no further reallocation (the SYCL grow-on-demand realloc faults).
+            if (!ggml_backend_sched_reserve(m->sched, m->graph)) {
+                fprintf(stderr, "[VAE] FATAL: graph reserve failed for T=%d\n", T_latent);
+                ggml_free(ctx);
+                free(m->graph_buf);
+                m->graph_ctx = NULL;
+                m->graph_buf = NULL;
+                m->graph_T   = 0;
+                return -1;
+            }
+            m->graph_ctx = ctx;
+            m->graph_T   = 0;
+            fprintf(stderr, "[VAE] Reserved buffers for worst-case T_latent=%d\n", T_latent);
+            return 0;
+        }
+
         if (!ggml_backend_sched_alloc_graph(m->sched, m->graph)) {
             fprintf(stderr, "[VAE] FATAL: graph alloc failed for T=%d\n", T_latent);
             ggml_free(ctx);
@@ -418,6 +439,10 @@ static int vae_ggml_compute(VAEGGML *     m,
         m->graph_ctx = ctx;
         m->graph_T   = T_latent;
         fprintf(stderr, "[VAE] Graph: %d nodes, T_latent=%d\n", ggml_graph_n_nodes(m->graph), T_latent);
+    }
+
+    if (reserve_only) {
+        return 0;
     }
 
     // Extract window + transpose: [T, 64] time-major -> ggml [T, 64] channel-major
@@ -488,6 +513,16 @@ static int vae_ggml_decode_tiled(VAEGGML *     m,
 
     fprintf(stderr, "[VAE] Tiled decode: %d tiles (chunk=%d, overlap=%d, stride=%d)\n", num_steps, chunk_size, overlap,
             stride);
+
+    // Pre-reserve backend buffers for the largest tile (chunk_size). Tiles vary in
+    // length, so vae_ggml_compute rebuilds the graph between them; without this the
+    // first size increase triggers a multi-buffer reallocation that faults on SYCL.
+    // Reserving the worst case keeps every later allocation in bounds. Tile geometry
+    // is unchanged, so the decoded audio is identical to the untiled reference.
+    if (vae_ggml_compute(m, latent, chunk_size, 0, true) < 0) {
+        fprintf(stderr, "[VAE] FATAL: buffer reserve failed\n");
+        return -1;
+    }
 
     float upsample_factor = 0.0f;
     int   audio_write_pos = 0;
