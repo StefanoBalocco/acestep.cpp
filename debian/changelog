@@ -1,3 +1,10 @@
+acestep.cpp (0.0.20260621~resolute1) resolute; urgency=medium
+
+  * vae: reserve backend scheduler buffers before tiled decode to avoid
+    runtime reallocations that can fail on some backends
+
+ -- Stefano Balocco <Stefano.Balocco@gmail.com>  Sun, 21 Jun 2026 21:29:14 +0200
+
 acestep.cpp (0.0.20260619~resolute1) resolute; urgency=medium
 
   * Use the Debian package version for embedded build version metadata.
