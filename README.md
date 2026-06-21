@@ -39,9 +39,20 @@ sudo apt install debhelper cmake pkg-config gzip sed \
 dpkg-buildpackage -b -us -uc
 ```
 
-CUDA is required for package builds: `debian/control` depends on
-`nvidia-cuda-toolkit (>= 12) | nvidia-cuda-dev`, and `debian/rules` builds
-with CUDA enabled.
+## Manual build flags
+
+All flags default to `OFF`; the base build is WAV-only and has no external audio dependencies.
+
+| Flag | Default | Enables | Debian/Ubuntu specific dependencies |
+|------|---------|---------|------------------------|
+| `-DMP3=ON` | `OFF` | MP3 encode via LAME and decode via vendored minimp3 | `libmp3lame-dev` |
+| `-DFLAC=ON` | `OFF` | FLAC encode and decode via libFLAC | `libflac-dev` |
+| `-DOPUS=ON` | `OFF` | Opus encode via libopusenc and decode via libopusfile | `libopusenc-dev`, `libopusfile-dev` |
+| `-DTOOLS=ON` | `OFF` | CLI tools: ace-synth, ace-lm, ace-understand, quantize, neural-codec, mp3-codec | |
+
+`ace-server` is always built; `-DTOOLS=ON` adds the CLI tools.
+
+Debian package builds enable `-DMP3=ON -DFLAC=ON -DOPUS=ON`
 
 ---
 
